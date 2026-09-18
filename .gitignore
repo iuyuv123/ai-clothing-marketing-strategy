@@ -1,0 +1,14 @@
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+.idea/
+.vscode/
+vector_store/marketing_strategy_kb/
+*.sqlite3
+.DS_Store
