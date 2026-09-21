@@ -4,10 +4,8 @@
 
 **项目角色：AI 产品经理 / 项目负责人**
 
-- 在线 Demo：TODO
-- GitHub：TODO
-
-当前尚未发布正式的 GitHub 仓库地址或 Streamlit 在线 Demo 地址。
+- 在线 Demo：待部署
+- GitHub：[https://github.com/iuyuv123/ai-clothing-marketing-strategy](https://github.com/iuyuv123/ai-clothing-marketing-strategy)
 
 ## 项目背景
 
