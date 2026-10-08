@@ -1,52 +1,22 @@
-import os
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
-import dashscope
-from dashscope import TextEmbedding
-from dotenv import load_dotenv
 from langchain_chroma import Chroma
 
-from knowledge_loader import load_and_split
-
-
-load_dotenv()
+from app.embedding_factory import DashScopeEmbeddings, create_embedding_model
+from app.runtime_config import CHROMA_COLLECTION, CHROMA_PERSIST_DIR, get_runtime_config
+try:  # package import from the agent/application entry points
+    from app.knowledge_loader import load_and_split
+except ModuleNotFoundError:  # legacy scripts import modules from app/ directly
+    from knowledge_loader import load_and_split
 
 
 def get_embedding_model() -> str:
-    load_dotenv()
-    value = os.getenv("DASHSCOPE_EMBEDDING_MODEL", "").strip().strip("\"'“”‘’")
-    if not value:
-        raise RuntimeError("DASHSCOPE_EMBEDDING_MODEL 未设置")
-    return value
+    return get_runtime_config().dashscope_embedding_model
 
 
-MODEL = os.getenv("DASHSCOPE_EMBEDDING_MODEL", "").strip().strip("\"'“”‘’")
-COLLECTION = "ai_ecommerce_knowledge"
-ROOT = Path(__file__).resolve().parent.parent
-PERSIST_DIR = ROOT / "vector_store" / "marketing_strategy_kb"
-
-
-class DashScopeEmbeddings:
-    def __init__(self, model: str | None = None):
-        self.model = model or get_embedding_model()
-
-    def _embed(self, texts: list[str]) -> list[list[float]]:
-        response = TextEmbedding.call(model=self.model, input=texts)
-        if response.status_code != 200:
-            raise RuntimeError(f"HTTP {response.status_code}: {response.message}")
-        items = response.output.get("embeddings", [])
-        vectors = [item["embedding"] for item in sorted(items, key=lambda item: item.get("text_index", 0))]
-        if len(vectors) != len(texts):
-            raise RuntimeError("Embedding 返回数量与输入数量不一致")
-        return vectors
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        return self._embed(texts)
-
-    def embed_query(self, text: str) -> list[float]:
-        return self._embed([text])[0]
+COLLECTION = CHROMA_COLLECTION
+PERSIST_DIR = CHROMA_PERSIST_DIR
 
 
 def _document_category(document: Any) -> str:
@@ -151,25 +121,17 @@ def general_retriever(vector_store: Chroma, top_k: int = 3):
 
 
 def main() -> int:
-    load_dotenv()
-    api_key = os.getenv("DASHSCOPE_API_KEY")
-    if not api_key:
-        print("========== Chroma 创建失败 ==========")
-        print("错误类型：配置错误")
-        print("错误信息：DASHSCOPE_API_KEY 未设置")
-        return 1
-
     try:
-        dashscope.api_key = api_key
+        config = get_runtime_config()
         _, _, chunks = load_and_split()
         if not chunks:
             raise RuntimeError("知识库没有可写入的 Chunk")
 
-        embedding_model = get_embedding_model()
-        embedding_function = DashScopeEmbeddings(embedding_model)
+        embedding_model = config.dashscope_embedding_model
+        embedding_function = create_embedding_model()
         existing = Chroma(
-            collection_name=COLLECTION,
-            persist_directory=str(PERSIST_DIR),
+            collection_name=config.chroma_collection,
+            persist_directory=str(config.chroma_persist_dir),
             embedding_function=embedding_function,
         )
         stored_count = existing._collection.count()
@@ -177,10 +139,10 @@ def main() -> int:
         print("========== Chroma 向量数据库只读检查 ==========")
         print(f"知识库 Chunk 数量：{len(chunks)}")
         print(f"现有向量数量：{stored_count}")
-        print(f"Collection：{COLLECTION}")
+        print(f"Collection：{config.chroma_collection}")
         print(f"Embedding 模型：{embedding_model}")
         print("向量维度：1024")
-        print("持久化目录：vector_store/marketing_strategy_kb/")
+        print(f"持久化目录：{config.chroma_persist_dir}")
         print("数据库写入：未执行（需在后续迁移阶段处理）")
         print("\n========== Metadata 验证 ==========")
         for item in metadata:

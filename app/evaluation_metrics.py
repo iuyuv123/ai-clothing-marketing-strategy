@@ -28,6 +28,7 @@ DEFAULT_UNCONFIRMED_ATTRIBUTE_TERMS = (
     "保暖",
     "耐磨",
     "速干",
+    "轻量",
     "轻量化",
     "羽绒",
     "锦纶",
@@ -43,7 +44,133 @@ DEFAULT_UNCONFIRMED_ATTRIBUTE_TERMS = (
     "极地",
     "全天候",
     "所有户外环境",
+    "防护等级",
+    "测试数据",
+    "国家标准",
+    "工艺参数",
+    "面料",
+    "重量",
 )
+
+RISK_EXPRESSION_TERMS = ("最强", "第一", "100%", "永远", "绝对")
+
+
+def evaluate_tool_selection(tool_trace: Iterable[str], task: str) -> dict[str, Any]:
+    """Evaluate whether the selected tools match the task intent."""
+    trace = list(tool_trace)
+    text = str(task or "")
+    if any(word in text for word in ("检查", "审核", "事实错误", "合规")):
+        expected = {"knowledge_retrieval", "content_review"}
+    elif any(word in text for word in ("方案", "推广", "小红书", "文案", "内容")):
+        expected = {
+            "product_analysis", "knowledge_retrieval", "marketing_strategy",
+            "content_generation", "content_review",
+        }
+    else:
+        expected = {"product_analysis", "knowledge_retrieval"}
+    actual = set(trace)
+    checks = {
+        "required_tools_present": expected.issubset(actual),
+        "no_unknown_tools": actual.issubset({
+            "product_analysis", "knowledge_retrieval", "marketing_strategy",
+            "content_generation", "content_review",
+        }),
+    }
+    return {"passed": all(checks.values()), "expected_tools": sorted(expected), "actual_tools": trace, "checks": checks}
+
+
+def _document_fields(document: Any) -> tuple[str, Mapping[str, Any]]:
+    """Read content and metadata from serialized dictionaries or Documents."""
+    if isinstance(document, Mapping):
+        content = document.get("page_content") or document.get("content") or ""
+        raw_metadata = document.get("metadata") or {}
+        metadata = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
+        for key in ("source", "category", "filename", "retrieval_candidate_count"):
+            if document.get(key) is not None and metadata.get(key) is None:
+                metadata[key] = document[key]
+        return str(content), metadata
+
+    content = getattr(document, "page_content", "") or ""
+    raw_metadata = getattr(document, "metadata", {}) or {}
+    metadata = raw_metadata if isinstance(raw_metadata, Mapping) else {}
+    return str(content), metadata
+
+
+def evaluate_retrieval_quality(documents: Iterable[Any] | None, *, top_k: int = 5) -> dict[str, Any]:
+    """Check non-empty, traceable Top-K retrieval and candidate metadata."""
+    docs = list(documents or [])
+    document_fields = [_document_fields(document) for document in docs]
+    valid = [
+        (content, metadata)
+        for content, metadata in document_fields
+        if content.strip()
+    ]
+    categories = sorted({
+        str(metadata.get("category"))
+        for _, metadata in valid
+        if metadata.get("category")
+    })
+    candidate_counts = [
+        int(metadata.get("retrieval_candidate_count", 0) or 0)
+        for _, metadata in valid
+    ]
+    checks = {
+        "non_empty": bool(docs),
+        "top_k_bound": 0 < len(docs) <= top_k,
+        "traceable_metadata": len(valid) == len(docs) and all(
+            metadata.get("source") for _, metadata in valid
+        ),
+        "top10_candidate_metadata": not candidate_counts or min(candidate_counts) >= 10,
+    }
+    return {
+        "passed": all(checks.values()), "document_count": len(docs), "categories": categories,
+        "candidate_counts": candidate_counts, "checks": checks,
+    }
+
+
+def evaluate_compliance(content: Any) -> dict[str, Any]:
+    """Check absolute-risk expressions in generated content."""
+    text = _text(content)
+    hits = sorted({term for term in RISK_EXPRESSION_TERMS if term in text})
+    return {"passed": not hits, "risk_terms": hits}
+
+
+def evaluate_task_completion(
+    strategy: Any,
+    content: Any,
+    *,
+    platform: str,
+    target_user: Any,
+    marketing_goal: str,
+) -> dict[str, Any]:
+    """Verify that a promotion plan includes the requested business outputs."""
+    strategy_data = _as_mapping(strategy)
+    content_data = _as_mapping(content)
+    checks = {
+        "strategy_present": bool(strategy_data),
+        "content_present": bool(content_data),
+        "platform": bool(platform),
+        "target_user": _non_empty(target_user),
+        "marketing_goal": bool(str(marketing_goal).strip()),
+    }
+    return {"passed": all(checks.values()), "checks": checks}
+
+
+def evaluate_iteration_efficiency(iteration_count: int, passed: bool) -> dict[str, Any]:
+    """Classify the bounded correction outcome."""
+    if passed and iteration_count == 0:
+        category = "首次通过"
+    elif passed and iteration_count == 1:
+        category = "一次修正通过"
+    elif passed and iteration_count == 2:
+        category = "两次修正通过"
+    else:
+        category = "两次仍失败"
+    return {
+        "passed": bool(passed) and 0 <= iteration_count <= 2,
+        "iteration_count": iteration_count,
+        "category": category,
+    }
 
 
 def _as_mapping(value: Any) -> Mapping[str, Any]:
@@ -215,6 +342,21 @@ def evaluate_fact_boundary(
         "excluded_fields": ["risk_control"],
         "matched_unconfirmed_terms": hits,
     }
+
+
+def evaluate_content_fact_consistency(
+    content: Any,
+    confirmed_features: str | Iterable[str],
+    prohibited_terms: Iterable[str] = DEFAULT_UNCONFIRMED_ATTRIBUTE_TERMS,
+) -> dict[str, Any]:
+    """Check final content itself for unsupported product attributes."""
+    content_text = _normalize(content)
+    confirmed_text = _normalize(confirmed_features)
+    hits = sorted({
+        term for term in prohibited_terms
+        if _normalize(term) in content_text and _normalize(term) not in confirmed_text
+    })
+    return {"passed": not hits, "matched_unconfirmed_terms": hits}
 
 
 def _character_ngrams(value: Any, size: int = 4) -> set[str]:

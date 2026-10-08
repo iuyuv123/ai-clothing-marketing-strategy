@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from typing import Any
 
-import dashscope
-from dotenv import load_dotenv
 from langchain_chroma import Chroma
 
 APP_DIR = Path(__file__).resolve().parent
@@ -21,13 +18,11 @@ from app.marketing_strategy_generator import (  # noqa: E402
     generate_marketing_strategy,
 )
 from app.rag_context import build_rag_context  # noqa: E402
-import product_analyzer  # noqa: E402
-from product_analyzer import ProductAnalysis  # noqa: E402
-from vector_store import DashScopeEmbeddings  # noqa: E402
-
-
-PERSIST_DIR = PROJECT_ROOT / "vector_store" / "marketing_strategy_kb"
-COLLECTION_NAME = "marketing_strategy_kb"
+from app.embedding_factory import create_embedding_model  # noqa: E402
+from app.runtime_config import get_runtime_config  # noqa: E402
+from app.vector_store import retrieve_marketing_knowledge  # noqa: E402
+from app import product_analyzer  # noqa: E402
+from app.product_analyzer import ProductAnalysis  # noqa: E402
 TOP_K = 5
 
 
@@ -56,18 +51,6 @@ def _analyze_product(product: dict[str, str]) -> ProductAnalysis:
     return analysis
 
 
-def _embedding_model() -> str:
-    load_dotenv(PROJECT_ROOT / ".env")
-    api_key = os.getenv("DASHSCOPE_API_KEY", "").strip()
-    model = os.getenv("DASHSCOPE_EMBEDDING_MODEL", "").strip().strip("\"'“”‘’")
-    if not api_key:
-        raise RuntimeError("DASHSCOPE_API_KEY 未设置，请检查项目 .env 配置。")
-    if not model:
-        raise RuntimeError("DASHSCOPE_EMBEDDING_MODEL 未设置，请检查项目 .env 配置。")
-    dashscope.api_key = api_key
-    return model
-
-
 def build_retrieval_query(product_analysis: ProductAnalysis) -> str:
     """Build a query from the actual analysis instead of a fixed example string."""
     fields = (
@@ -87,21 +70,21 @@ def build_retrieval_query(product_analysis: ProductAnalysis) -> str:
 
 def retrieve_knowledge(query: str, top_k: int = TOP_K) -> list[Any]:
     """Load the formal Chroma store and retrieve strategy knowledge."""
-    if not PERSIST_DIR.is_dir():
+    config = get_runtime_config()
+    if not config.chroma_persist_dir.is_dir():
         raise FileNotFoundError("正式营销策略知识库不存在，请先完成知识库构建。")
 
-    model = _embedding_model()
     try:
         store = Chroma(
-            collection_name=COLLECTION_NAME,
-            persist_directory=str(PERSIST_DIR),
-            embedding_function=DashScopeEmbeddings(model=model),
+            collection_name=config.chroma_collection,
+            persist_directory=str(config.chroma_persist_dir),
+            embedding_function=create_embedding_model(),
         )
-        return list(
-            store.as_retriever(
-                search_type="similarity",
-                search_kwargs={"k": top_k},
-            ).invoke(query)
+        return retrieve_marketing_knowledge(
+            store,
+            query,
+            top_k=top_k,
+            candidate_k=max(10, top_k * 2),
         )
     except Exception as exc:
         raise RuntimeError(f"RAG 检索失败：{exc}") from exc

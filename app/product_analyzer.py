@@ -3,18 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
-from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ValidationError, field_validator
 
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
+from app.llm_factory import create_chat_model
 
 class ProductAnalysis(BaseModel):
     """Structured facts and analysis produced for the current runtime product."""
@@ -132,18 +126,6 @@ JSON 必须严格包含以下字段，所有字段都必须有实际内容：
 """
 
 
-def _configured_llm() -> ChatOpenAI:
-    load_dotenv(PROJECT_ROOT / ".env")
-    api_key = os.getenv("DASHSCOPE_API_KEY", "").strip()
-    base_url = os.getenv("DASHSCOPE_BASE_URL", "").strip()
-    model = os.getenv("DASHSCOPE_MODEL", "").strip().strip("\"'“”‘’")
-    if not all((api_key, base_url, model)):
-        raise RuntimeError(
-            "DASHSCOPE_API_KEY、DASHSCOPE_BASE_URL、DASHSCOPE_MODEL 未完整配置"
-        )
-    return ChatOpenAI(api_key=api_key, base_url=base_url, model=model)
-
-
 def _validate_input(name: str, value: str, required: bool = True) -> str:
     value = value.strip() if isinstance(value, str) else ""
     if required and not value:
@@ -167,7 +149,7 @@ def analyze_product(
     usage_scenarios = _validate_input("已知使用场景", usage_scenarios, required=False)
     product_details = _validate_input("商品详细资料", product_details, required=False)
 
-    response = _configured_llm().invoke(
+    response = create_chat_model().invoke(
         _build_prompt(
             brand_name,
             product_name,

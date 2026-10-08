@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from rag_context import build_rag_context
+from app.llm_factory import create_chat_model
 
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
+try:  # package import when the project is run as ``python -m``
+    from app.rag_context import build_rag_context
+except ModuleNotFoundError:  # legacy scripts import modules from app/ directly
+    from rag_context import build_rag_context
 
 class MarketingStrategy(BaseModel):
     product_positioning: str
@@ -29,18 +26,6 @@ class MarketingStrategy(BaseModel):
     content_direction: list[str]
     execution_suggestions: list[str]
     risk_control: list[str]
-
-
-def _build_llm() -> ChatOpenAI:
-    load_dotenv(PROJECT_ROOT / ".env")
-    api_key = os.getenv("DASHSCOPE_API_KEY", "").strip()
-    base_url = os.getenv("DASHSCOPE_BASE_URL", "").strip()
-    model = os.getenv("DASHSCOPE_MODEL", "").strip().strip("\"'“”‘’")
-    if not all((api_key, base_url, model)):
-        raise RuntimeError(
-            "DASHSCOPE_API_KEY、DASHSCOPE_BASE_URL、DASHSCOPE_MODEL 未完整配置"
-        )
-    return ChatOpenAI(api_key=api_key, base_url=base_url, model=model)
 
 
 def _strategy_prompt(rag_context: str) -> str:
@@ -119,7 +104,7 @@ def generate_marketing_strategy(
 ) -> MarketingStrategy:
     """Generate and validate a marketing strategy from runtime RAG context."""
     rag_context = build_rag_context(product_analysis, retrieved_documents)
-    response = _build_llm().invoke(_strategy_prompt(rag_context))
+    response = create_chat_model().invoke(_strategy_prompt(rag_context))
     try:
         data = json.loads(response.content)
     except (TypeError, json.JSONDecodeError) as exc:
