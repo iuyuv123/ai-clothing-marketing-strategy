@@ -7,13 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# TODO: This legacy test references the removed app.workflow module and requires migration to the current marketing_strategy_workflow module.
-
-# Make the existing app modules (which use project-local absolute imports)
-# resolvable when this test is launched directly from PyCharm.
-APP_DIR = Path(__file__).resolve().parent
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
+# Keep this acceptance script runnable from the repository root and PyCharm.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.marketing_strategy_generator import (  # noqa: E402
     MarketingStrategy,
@@ -21,8 +18,8 @@ from app.marketing_strategy_generator import (  # noqa: E402
 )
 # workflow.py imports this project-local module by its absolute name; reuse the
 # same class object so isinstance checks do not split across duplicate modules.
-from product_analyzer import ProductAnalysis  # noqa: E402
-from app.workflow import analyze_product, retrieve_knowledge  # noqa: E402
+from app.product_analyzer import ProductAnalysis, analyze_product  # noqa: E402
+from app.marketing_strategy_workflow import build_retrieval_query, retrieve_knowledge  # noqa: E402
 
 
 PRODUCT = {
@@ -78,15 +75,18 @@ def _print_strategy(strategy: MarketingStrategy) -> None:
 
 
 def run_acceptance_test() -> int:
-    # The current project exposes analysis and retrieval through workflow.py;
-    # this test reuses those functions instead of recreating either component.
-    product_analysis = analyze_product(PRODUCT, trusted_knowledge=[])
+    product_analysis = analyze_product(
+        brand_name=PRODUCT["品牌名称"],
+        product_name=PRODUCT["商品类型"],
+        product_type=PRODUCT["商品类型"],
+        confirmed_features=PRODUCT["商品卖点"],
+        usage_scenarios=PRODUCT["营销场景"],
+    )
     if not isinstance(product_analysis, ProductAnalysis):
         raise TypeError("商品分析结果不是 ProductAnalysis")
 
-    documents: list[Any] = []
-    for query in RETRIEVAL_QUERIES:
-        documents.extend(retrieve_knowledge(PRODUCT, top_k=3, query=query))
+    query = build_retrieval_query(product_analysis)
+    documents: list[Any] = retrieve_knowledge(query, top_k=5)
 
     strategy = generate_marketing_strategy(product_analysis, documents)
     if not isinstance(strategy, MarketingStrategy):

@@ -7,16 +7,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-APP_DIR = Path(__file__).resolve().parent
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from marketing_strategy_generator import MarketingStrategy, generate_marketing_strategy  # noqa: E402
-from marketing_strategy_workflow import (  # noqa: E402
+from app.marketing_strategy_generator import MarketingStrategy, generate_marketing_strategy  # noqa: E402
+from app.marketing_strategy_workflow import (  # noqa: E402
     build_retrieval_query,
     retrieve_knowledge,
 )
-from product_analyzer import ProductAnalysis, analyze_product  # noqa: E402
+from app.product_analyzer import ProductAnalysis, analyze_product  # noqa: E402
 
 
 TEST_CASES: tuple[dict[str, Any], ...] = (

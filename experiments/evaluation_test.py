@@ -23,9 +23,9 @@ from evaluation_metrics import (  # noqa: E402
 )
 from marketing_strategy_generator import (  # noqa: E402
     MarketingStrategy,
-    _build_llm,
     generate_marketing_strategy,
 )
+from app.llm_factory import create_chat_model  # noqa: E402
 from marketing_strategy_workflow import (  # noqa: E402
     build_retrieval_query,
     retrieve_knowledge,
@@ -88,7 +88,7 @@ def _without_rag_prompt(product_analysis: ProductAnalysis) -> str:
 
 def generate_without_rag(product_analysis: ProductAnalysis) -> MarketingStrategy:
     """Generate the baseline strategy without retrieval or RAG context."""
-    response = _build_llm().invoke(_without_rag_prompt(product_analysis))
+    response = create_chat_model().invoke(_without_rag_prompt(product_analysis))
     try:
         data = json.loads(response.content)
     except (TypeError, json.JSONDecodeError) as exc:
